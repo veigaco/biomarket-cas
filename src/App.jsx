@@ -36,42 +36,70 @@ const SECTORS = {
 
 const REGIMES = {
   GROWTH: {
-    label: 'Green World (Expansion)',
+    label: 'Bull Market',
     color: 'text-green-400',
     rateRange: [0, 1.5],
-    vixBase: 12,
-    driftMultiplier: 1.8,  // Strong growth bias
-    healthRegen: 0.002     // Health regenerates in good times
+    vixBase: 15,              // Increased from 12 to keep VIX average ~18
+    driftMultiplier: 6.5,     // Target: ~30% annual (bull years)
+    healthRegen: 0.0002       // Strong regeneration
   },
   STAGNATION: {
-    label: 'Punctuated Stasis',
+    label: 'Sideways Market',
     color: 'text-yellow-400',
     rateRange: [1.5, 3.5],
-    vixBase: 20,
-    driftMultiplier: 1.1,  // Slight growth bias
-    healthRegen: 0.0005    // Minimal regeneration
+    vixBase: 18,              // Reduced from 20
+    driftMultiplier: 1.2,     // Target: ~5% annual (normal years)
+    healthRegen: 0.00001      // Minimal regeneration
   },
   CONTRACTION: {
-    label: 'Resource Scarcity',
+    label: 'Correction',
     color: 'text-orange-500',
     rateRange: [3.5, 5.0],
-    vixBase: 28,
-    driftMultiplier: 0.6,  // Slight decline
-    healthRegen: 0.0       // No regeneration
+    vixBase: 25,              // Reduced from 28
+    driftMultiplier: -1.2,    // Target: ~-5% annual (correction years)
+    healthRegen: -0.00005     // Active decay
   },
   CRISIS: {
-    label: 'Sporulation (Crises)',
+    label: 'Bear Market',      // Changed from 'Sporulation (Crises)'
     color: 'text-red-500',
     rateRange: [4.0, 5.5],
-    vixBase: 45,
-    driftMultiplier: 0.2,  // Strong decline
-    healthRegen: -0.001    // Health drains faster
+    vixBase: 35,              // Reduced from 45 (NO SPORULATION TRIGGER)
+    driftMultiplier: -5.0,    // Target: ~-20% annual (bear years)
+    healthRegen: -0.0002      // Strong decay
+  }
+};
+
+// Weighted transition probabilities (regimes persist longer for realistic annual variance)
+const REGIME_TRANSITIONS = {
+  GROWTH: {
+    GROWTH: 0.997,       // 99.7% stay (avg 333 ticks before transition)
+    STAGNATION: 0.002,
+    CONTRACTION: 0.001,
+    CRISIS: 0.0          // Can't go directly to CRISIS from GROWTH
+  },
+  STAGNATION: {
+    GROWTH: 0.001,
+    STAGNATION: 0.994,   // 99.4% stay
+    CONTRACTION: 0.003,
+    CRISIS: 0.002
+  },
+  CONTRACTION: {
+    GROWTH: 0.002,
+    STAGNATION: 0.002,
+    CONTRACTION: 0.993,  // 99.3% stay
+    CRISIS: 0.003        // Can escalate to CRISIS
+  },
+  CRISIS: {
+    GROWTH: 0.001,       // Rare recovery
+    STAGNATION: 0.003,
+    CONTRACTION: 0.001,
+    CRISIS: 0.995        // 99.5% stay (bear markets persist!)
   }
 };
 
 const HISTORY_LENGTH = 60; // 60-period window for returns
-const TRADING_WINDOW_SECONDS = 60;
-const CLOSE_WINDOW_SECONDS = 10;
+const TRADING_WINDOW_TICKS = 12;  // 6 seconds at 500ms/tick (1 trading day)
+const CLOSE_WINDOW_TICKS = 8;     // 4 seconds at 500ms/tick (market closed)
 
 // --- Helper Functions ---
 const logNormalRandom = (mean, stdDev) => {
@@ -85,6 +113,17 @@ const formatCurrency = (val) => {
   if (val >= 1e12) return `$${(val / 1e12).toFixed(2)}T`;
   if (val >= 1e9) return `$${(val / 1e9).toFixed(2)}B`;
   return `$${val.toFixed(2)}`;
+};
+
+const generateSectorTicker = (sector) => {
+  const firstLetter = sector.charAt(0).toUpperCase();
+  const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  const length = Math.random() > 0.5 ? 3 : 4;
+  let ticker = firstLetter;
+  for (let i = 1; i < length; i++) {
+    ticker += letters[Math.floor(Math.random() * letters.length)];
+  }
+  return ticker;
 };
 
 const generateInitialStocks = () => {
@@ -103,7 +142,7 @@ const generateInitialStocks = () => {
 
         stocks.push({
           id: `stock-${idCounter++}`,
-          ticker: `${sector.substring(0, 2).toUpperCase()}${sub.substring(0, 1).toUpperCase()}${String.fromCharCode(65 + i)}`,
+          ticker: generateSectorTicker(sector),
           name: `${sub} ${['Corp', 'Systems', 'Global'][Math.floor(Math.random() * 3)]}`,
           sector,
           subIndustry: sub,
@@ -251,7 +290,7 @@ const TreemapTile = ({ stock, x, y, width, height }) => {
   );
 };
 
-const TreemapLayout = ({ stocks }) => {
+const TreemapLayout = ({ stocks, phase }) => {
   const layoutTreemap = (items, x, y, w, h, vertical = true) => {
     if (items.length === 0) return [];
     if (items.length === 1) return [{ ...items[0], x, y, w, h }];
@@ -305,7 +344,9 @@ const TreemapLayout = ({ stocks }) => {
   }, [stocks]);
 
   return (
-    <div className="relative w-full h-full bg-slate-950 border-2 border-slate-800 rounded overflow-hidden">
+    <div className={`relative w-full h-full bg-slate-950 border-2 border-slate-800 rounded overflow-hidden transition-all duration-300 ${
+      phase === 'CLOSED' ? 'opacity-50 grayscale' : ''
+    }`}>
       {sectorGroups.map(sector => (
         <div
           key={sector.name}
@@ -362,33 +403,46 @@ export default function App() {
 
   const updateSimulation = () => {
     setTime(prev => {
-      const nextTime = prev + 1;
-      if (phase === 'TRADING' && nextTime >= TRADING_WINDOW_SECONDS) {
+      const nextTick = prev + 1;
+      if (phase === 'TRADING' && nextTick >= TRADING_WINDOW_TICKS) {
         setPhase('CLOSED');
-        addLog("Vertical rebalancing initiated.", "warning");
+        addLog("Market closing - after-hours trading begins", "warning");
         return 0;
       }
-      if (phase === 'CLOSED' && nextTime >= CLOSE_WINDOW_SECONDS) {
+      if (phase === 'CLOSED' && nextTick >= CLOSE_WINDOW_TICKS) {
         setPhase('TRADING');
-        addLog("New metabolic cycle active.", "success");
+        // Create gap/disconnect on market open (simulate pre-market movement)
+        setStocks(prevStocks => prevStocks.map(stock => {
+          if (stock.status === 'bankrupt') return stock;
+          const gapDirection = Math.random() > 0.5 ? 1 : -1;
+          const gapMagnitude = (Math.random() * 0.015 + 0.005) * gapDirection; // 0.5% to 2%
+          const gappedPrice = stock.price * (1 + gapMagnitude);
+          return { ...stock, price: Math.max(0.1, gappedPrice) };
+        }));
+        addLog("Market open - gap from overnight drift", "success");
         return 0;
       }
-      return nextTime;
+      return nextTick;
     });
 
-    if (phase === 'CLOSED') return;
+    // Prices drift 24/7 (no longer gated by phase)
 
-    // Macro Updates
+    // Macro Updates - Weighted regime transitions for persistence
     setRegime(prev => {
-      if (Math.random() < 0.005) {
-        const regimes = Object.keys(REGIMES);
-        const next = regimes[Math.floor(Math.random() * regimes.length)];
-        if (next !== prev) {
-          addLog(`Regime Shift: ${REGIMES[next].label}`, "error");
-          return next;
+      const transitions = REGIME_TRANSITIONS[prev];
+      const rand = Math.random();
+      let cumulative = 0;
+
+      for (const [nextRegime, prob] of Object.entries(transitions)) {
+        cumulative += prob;
+        if (rand < cumulative) {
+          if (nextRegime !== prev) {
+            addLog(`Regime Shift: ${REGIMES[nextRegime].label}`, "error");
+          }
+          return nextRegime;
         }
       }
-      return prev;
+      return prev; // Fallback
     });
 
     setInterestRate(prev => {
@@ -398,9 +452,21 @@ export default function App() {
 
     setVix(prev => {
       const base = REGIMES[regime].vixBase;
-      const spike = Math.random() > 0.98 ? Math.random() * 30 : 0;
+
+      // VIX spike logic: frequent small spikes, rare large spikes
+      let spike = 0;
+      const rand = Math.random();
+      if (rand > 0.998) {
+        // 0.2% chance: Rare large spike (+15 to +40) → VIX 30-70 range
+        spike = Math.random() * 25 + 15;
+      } else if (rand > 0.99) {
+        // 1% chance: Common small spike (+5 to +12) → VIX mid-20s
+        spike = Math.random() * 7 + 5;
+      }
+
       const decay = (prev - base) * 0.15;
-      return Math.max(10, prev - decay + spike + (Math.random() - 0.5));
+      const noise = (Math.random() - 0.5) * 1.5; // Reduced noise from ±0.5 to ±0.75
+      return Math.max(10, prev - decay + spike + noise);
     });
 
     // Stock & Area Updates
@@ -410,7 +476,7 @@ export default function App() {
 
         // --- IMPROVED METABOLIC SYSTEM ---
 
-        // 1. Base metabolic cost (lower baseline)
+        // 1. Base metabolic cost (doubled for more bankruptcies and IPO activity)
         const baseCost = (interestRate / 5.0) * 0.0008 + (vix / 90.0) * 0.001;
 
         // 2. Calculate return-based health regeneration
@@ -428,13 +494,12 @@ export default function App() {
 
         // --- IMPROVED PRICE DYNAMICS ---
 
-        // 1. Base drift with regime multiplier
+        // 1. Base drift with regime multiplier (calibrated for ~7-10% annual return)
         const regimeMultiplier = REGIMES[regime].driftMultiplier || 1.0;
-        const baseDrift = (stock.valueScore * 0.004) * regimeMultiplier; // Stronger base growth
+        const baseDrift = (stock.valueScore * 0.00002) * regimeMultiplier; // Realistic growth bias
 
-        // 2. Crisis shock (only in high VIX)
-        const isSporulating = vix > 45;
-        const shock = isSporulating ? (Math.random() * -0.06) : 0;
+        // 2. No crisis shocks - let drift and volatility handle market dynamics
+        const shock = 0;
 
         // 3. Health bonus: healthy companies grow faster
         const healthBonus = (health - 0.5) * 0.001; // Bonus when health > 50%
@@ -466,19 +531,20 @@ export default function App() {
         };
       });
 
-      // Sprouting (Sustainability of the System)
+      // IPO Mechanism (Replaces bankruptcies with realistic new companies)
       const activeCount = updated.filter(s => s.status === 'active').length;
       if (activeCount < prevStocks.length * 0.9) {
         const deadIdx = updated.findIndex(s => s.status === 'bankrupt');
         if (deadIdx !== -1) {
           const sKeys = Object.keys(SECTORS);
           const sector = sKeys[Math.floor(Math.random() * sKeys.length)];
-          const sub = SECTORS[sector][0];
+          const subIndustries = SECTORS[sector];
+          const sub = subIndustries[Math.floor(Math.random() * subIndustries.length)];
           const newPrice = 80 + Math.random() * 40;
           updated[deadIdx] = {
             id: `stock-${stockIdCounter.current++}`,
-            ticker: `SPRT${stockIdCounter.current % 100}`,
-            name: `${sub} Sprout`,
+            ticker: generateSectorTicker(sector),
+            name: `${sub} ${['Inc', 'Corp', 'Group', 'Holdings'][Math.floor(Math.random() * 4)]}`,
             sector,
             subIndustry: sub,
             price: newPrice,
@@ -490,6 +556,7 @@ export default function App() {
             history: Array(HISTORY_LENGTH).fill(newPrice),
             status: 'active'
           };
+          addLog(`IPO: ${updated[deadIdx].ticker} (${sector})`, 'success');
         }
       }
       return updated;
@@ -507,7 +574,7 @@ export default function App() {
 
   // Track market cap history for period returns
   useEffect(() => {
-    setMarketCapHistory(prev => [...prev, marketCapTotal].slice(-365)); // Keep last 365 ticks
+    setMarketCapHistory(prev => [...prev, marketCapTotal].slice(-366)); // Keep last 366 ticks (need 366 for 365T calc)
   }, [marketCapTotal]);
 
   // Calculate period returns
@@ -540,41 +607,44 @@ export default function App() {
             <span className={vix > 35 ? 'text-red-400' : 'text-blue-400'}>VIX: {vix.toFixed(1)}</span>
           </div>
           <div className="absolute bottom-0 left-0 h-1 bg-white/5 w-full">
-            <div className="h-full bg-blue-500 transition-all duration-500" style={{ width: `${(time / (phase === 'TRADING' ? TRADING_WINDOW_SECONDS : CLOSE_WINDOW_SECONDS)) * 100}%` }} />
+            <div className="h-full bg-blue-500 transition-all duration-500" style={{ width: `${(time / (phase === 'TRADING' ? TRADING_WINDOW_TICKS : CLOSE_WINDOW_TICKS)) * 100}%` }} />
           </div>
         </div>
 
         <div className="bg-slate-900 border border-white/5 p-4 rounded-xl flex flex-col justify-center">
-          <span className="text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-1 mb-1">
+          <span className="text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-1 mb-2">
             <Waves className="w-3 h-3" /> SYSTEM BIOMASS
           </span>
-          <h2 className="text-2xl font-black text-white tracking-tighter mb-2">{formatCurrency(marketCapTotal)}</h2>
 
-          {/* Period Returns */}
-          <div className="flex gap-3 mb-2">
-            <div className="flex flex-col">
-              <span className="text-[8px] text-slate-500 font-bold">60T</span>
-              <span className={`text-xs font-black ${
-                return60 === null ? 'text-slate-600' : return60 >= 0 ? 'text-green-400' : 'text-red-400'
-              }`}>
-                {return60 === null ? '—' : `${return60 > 0 ? '+' : ''}${return60.toFixed(1)}%`}
-              </span>
-            </div>
-            <div className="flex flex-col">
-              <span className="text-[8px] text-slate-500 font-bold">180T</span>
-              <span className={`text-xs font-black ${
-                return180 === null ? 'text-slate-600' : return180 >= 0 ? 'text-green-400' : 'text-red-400'
-              }`}>
-                {return180 === null ? '—' : `${return180 > 0 ? '+' : ''}${return180.toFixed(1)}%`}
-              </span>
-            </div>
-            <div className="flex flex-col">
-              <span className="text-[8px] text-slate-500 font-bold">365T</span>
-              <span className={`text-xs font-black ${
-                return365 === null ? 'text-slate-600' : return365 >= 0 ? 'text-green-400' : 'text-red-400'
-              }`}>
-                {return365 === null ? '—' : `${return365 > 0 ? '+' : ''}${return365.toFixed(1)}%`}
-              </span>
+          {/* Biomass and Period Returns - Horizontal Layout */}
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-2xl font-black text-white tracking-tighter">{formatCurrency(marketCapTotal)}</h2>
+
+            <div className="flex gap-4">
+              <div className="text-center">
+                <div className="text-[8px] text-slate-500 font-bold mb-0.5">60T</div>
+                <div className={`text-xs font-black ${
+                  return60 === null ? 'text-slate-600' : return60 >= 0 ? 'text-green-400' : 'text-red-400'
+                }`}>
+                  {return60 === null ? '—' : `${return60 > 0 ? '+' : ''}${return60.toFixed(1)}%`}
+                </div>
+              </div>
+              <div className="text-center">
+                <div className="text-[8px] text-slate-500 font-bold mb-0.5">180T</div>
+                <div className={`text-xs font-black ${
+                  return180 === null ? 'text-slate-600' : return180 >= 0 ? 'text-green-400' : 'text-red-400'
+                }`}>
+                  {return180 === null ? '—' : `${return180 > 0 ? '+' : ''}${return180.toFixed(1)}%`}
+                </div>
+              </div>
+              <div className="text-center">
+                <div className="text-[8px] text-slate-500 font-bold mb-0.5">365T</div>
+                <div className={`text-xs font-black ${
+                  return365 === null ? 'text-slate-600' : return365 >= 0 ? 'text-green-400' : 'text-red-400'
+                }`}>
+                  {return365 === null ? '—' : `${return365 > 0 ? '+' : ''}${return365.toFixed(1)}%`}
+                </div>
+              </div>
             </div>
           </div>
 
@@ -617,7 +687,7 @@ export default function App() {
         </div>
 
         <div className="flex-1 relative">
-          <TreemapLayout stocks={activeStocks} />
+          <TreemapLayout stocks={activeStocks} phase={phase} />
         </div>
       </main>
 

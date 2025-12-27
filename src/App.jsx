@@ -35,10 +35,38 @@ const SECTORS = {
 };
 
 const REGIMES = {
-  GROWTH: { label: 'Green World (Expansion)', color: 'text-green-400', rateRange: [0, 1.5], vixBase: 12 },
-  STAGNATION: { label: 'Punctuated Stasis', color: 'text-yellow-400', rateRange: [1.5, 3.5], vixBase: 20 },
-  CONTRACTION: { label: 'Resource Scarcity', color: 'text-orange-500', rateRange: [3.5, 5.0], vixBase: 28 },
-  CRISIS: { label: 'Sporulation (Crises)', color: 'text-red-500', rateRange: [4.0, 5.5], vixBase: 45 }
+  GROWTH: {
+    label: 'Green World (Expansion)',
+    color: 'text-green-400',
+    rateRange: [0, 1.5],
+    vixBase: 12,
+    driftMultiplier: 1.8,  // Strong growth bias
+    healthRegen: 0.002     // Health regenerates in good times
+  },
+  STAGNATION: {
+    label: 'Punctuated Stasis',
+    color: 'text-yellow-400',
+    rateRange: [1.5, 3.5],
+    vixBase: 20,
+    driftMultiplier: 1.1,  // Slight growth bias
+    healthRegen: 0.0005    // Minimal regeneration
+  },
+  CONTRACTION: {
+    label: 'Resource Scarcity',
+    color: 'text-orange-500',
+    rateRange: [3.5, 5.0],
+    vixBase: 28,
+    driftMultiplier: 0.6,  // Slight decline
+    healthRegen: 0.0       // No regeneration
+  },
+  CRISIS: {
+    label: 'Sporulation (Crises)',
+    color: 'text-red-500',
+    rateRange: [4.0, 5.5],
+    vixBase: 45,
+    driftMultiplier: 0.2,  // Strong decline
+    healthRegen: -0.001    // Health drains faster
+  }
 };
 
 const HISTORY_LENGTH = 60; // 60-period window for returns
@@ -321,6 +349,7 @@ export default function App() {
   const [time, setTime] = useState(0);
   const [phase, setPhase] = useState('TRADING');
   const [logs, setLogs] = useState([]);
+  const [marketCapHistory, setMarketCapHistory] = useState([]);
 
   const simulationRef = useRef(null);
   const logIdCounter = useRef(0);
@@ -379,13 +408,41 @@ export default function App() {
       const updated = prevStocks.map(stock => {
         if (stock.status === 'bankrupt') return stock;
 
-        const metabolicCost = (interestRate / 5.0) * 0.0015 + (vix / 90.0) * 0.002;
-        let health = stock.metabolicHealth - metabolicCost;
+        // --- IMPROVED METABOLIC SYSTEM ---
 
+        // 1. Base metabolic cost (lower baseline)
+        const baseCost = (interestRate / 5.0) * 0.0008 + (vix / 90.0) * 0.001;
+
+        // 2. Calculate return-based health regeneration
+        const recentReturn = stock.history.length >= 5
+          ? (stock.price - stock.history[stock.history.length - 5]) / stock.history[stock.history.length - 5]
+          : 0;
+        const performanceRegen = recentReturn * 0.02; // Profitable stocks regenerate health
+
+        // 3. Regime-based health adjustment
+        const regimeRegen = REGIMES[regime].healthRegen || 0;
+
+        // 4. Net health change (can now be positive!)
+        const healthChange = -baseCost + performanceRegen + regimeRegen;
+        let health = Math.min(1.2, Math.max(0, stock.metabolicHealth + healthChange)); // Cap at 120%
+
+        // --- IMPROVED PRICE DYNAMICS ---
+
+        // 1. Base drift with regime multiplier
+        const regimeMultiplier = REGIMES[regime].driftMultiplier || 1.0;
+        const baseDrift = (stock.valueScore * 0.004) * regimeMultiplier; // Stronger base growth
+
+        // 2. Crisis shock (only in high VIX)
         const isSporulating = vix > 45;
-        const shock = isSporulating ? (Math.random() * -0.08) : 0;
+        const shock = isSporulating ? (Math.random() * -0.06) : 0;
 
-        const drift = (stock.valueScore * 0.0015) - metabolicCost + shock;
+        // 3. Health bonus: healthy companies grow faster
+        const healthBonus = (health - 0.5) * 0.001; // Bonus when health > 50%
+
+        // 4. Final drift calculation
+        const drift = baseDrift + healthBonus + shock;
+
+        // 5. Volatility (unchanged)
         const vol = (stock.volatility / 35) * (vix / 14);
         const change = Math.exp(drift + vol * (Math.random() - 0.5));
 
@@ -448,6 +505,24 @@ export default function App() {
   const marketCapTotal = useMemo(() => activeStocks.reduce((acc, s) => acc + s.currentMarketCap, 0), [activeStocks]);
   const avgHealth = activeStocks.length > 0 ? activeStocks.reduce((acc, s) => acc + s.metabolicHealth, 0) / activeStocks.length : 0;
 
+  // Track market cap history for period returns
+  useEffect(() => {
+    setMarketCapHistory(prev => [...prev, marketCapTotal].slice(-365)); // Keep last 365 ticks
+  }, [marketCapTotal]);
+
+  // Calculate period returns
+  const getPeriodReturn = (periods) => {
+    if (marketCapHistory.length < periods + 1) return null;
+    const startCap = marketCapHistory[marketCapHistory.length - periods - 1];
+    const currentCap = marketCapTotal;
+    if (startCap === 0) return null;
+    return ((currentCap - startCap) / startCap) * 100;
+  };
+
+  const return60 = getPeriodReturn(60);
+  const return180 = getPeriodReturn(180);
+  const return365 = getPeriodReturn(365);
+
   return (
     <div className="fixed inset-0 bg-slate-950 text-slate-200 font-sans p-4 flex flex-col gap-4 overflow-hidden">
       {/* --- DASHBOARD HEADER --- */}
@@ -473,8 +548,37 @@ export default function App() {
           <span className="text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-1 mb-1">
             <Waves className="w-3 h-3" /> SYSTEM BIOMASS
           </span>
-          <h2 className="text-2xl font-black text-white tracking-tighter">{formatCurrency(marketCapTotal)}</h2>
-          <div className="w-full h-1 bg-slate-800 rounded-full mt-2 overflow-hidden">
+          <h2 className="text-2xl font-black text-white tracking-tighter mb-2">{formatCurrency(marketCapTotal)}</h2>
+
+          {/* Period Returns */}
+          <div className="flex gap-3 mb-2">
+            <div className="flex flex-col">
+              <span className="text-[8px] text-slate-500 font-bold">60T</span>
+              <span className={`text-xs font-black ${
+                return60 === null ? 'text-slate-600' : return60 >= 0 ? 'text-green-400' : 'text-red-400'
+              }`}>
+                {return60 === null ? '—' : `${return60 > 0 ? '+' : ''}${return60.toFixed(1)}%`}
+              </span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[8px] text-slate-500 font-bold">180T</span>
+              <span className={`text-xs font-black ${
+                return180 === null ? 'text-slate-600' : return180 >= 0 ? 'text-green-400' : 'text-red-400'
+              }`}>
+                {return180 === null ? '—' : `${return180 > 0 ? '+' : ''}${return180.toFixed(1)}%`}
+              </span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[8px] text-slate-500 font-bold">365T</span>
+              <span className={`text-xs font-black ${
+                return365 === null ? 'text-slate-600' : return365 >= 0 ? 'text-green-400' : 'text-red-400'
+              }`}>
+                {return365 === null ? '—' : `${return365 > 0 ? '+' : ''}${return365.toFixed(1)}%`}
+              </span>
+            </div>
+          </div>
+
+          <div className="w-full h-1 bg-slate-800 rounded-full overflow-hidden">
             <div className="h-full bg-emerald-500" style={{ width: `${avgHealth * 100}%` }} />
           </div>
         </div>

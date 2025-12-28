@@ -16,6 +16,7 @@ from ..config import (
 from .regime_manager import RegimeManager
 from .stock_price import StockPriceEngine
 from .ipo_manager import IPOManager
+from .cycle_analytics import CycleAnalytics
 from .utils import log_normal_random, generate_sector_ticker
 
 
@@ -27,6 +28,7 @@ class SimulationEngine:
         self.regime_manager = RegimeManager()
         self.stock_price_engine = StockPriceEngine()
         self.ipo_manager = IPOManager()
+        self.cycle_analytics = CycleAnalytics()
         self.market_state = MarketState()
 
         self.tick_count = 0
@@ -96,20 +98,37 @@ class SimulationEngine:
             self.regime_manager.current_regime
         )
         for log in price_logs:
+            # Track bankruptcies for cycle analytics
+            if "Extinction:" in log:
+                self.cycle_analytics.record_bankruptcy()
             self._add_log(log, 'error')
 
         # 5. Handle bankruptcies and IPOs
         # IPOs only occur during GROWTH regime (risk appetite)
+        # Exception: Emergency IPOs trigger if <10% companies active (prevent collapse)
         ipo_event = self.ipo_manager.process(self.stocks, self.regime_manager.current_regime)
         if ipo_event:
+            self.cycle_analytics.record_ipo()
+            ipo_type = "Emergency IPO" if ipo_event.get('emergency') else "IPO"
+            log_type = 'error' if ipo_event.get('emergency') else 'success'
             self._add_log(
-                f"IPO: {ipo_event['ticker']} ({ipo_event['sector']} - {ipo_event['sub_industry']}) enters the market",
-                'success'
+                f"{ipo_type}: {ipo_event['ticker']} ({ipo_event['sector']} - {ipo_event['sub_industry']}) enters the market",
+                log_type
             )
 
         # 6. Track market cap history
         total_market_cap = self._calculate_total_market_cap()
         self.market_cap_history.append(total_market_cap)
+
+        # 7. Update cycle analytics
+        self.cycle_analytics.tick_update(
+            tick=self.tick_count,
+            active_company_count=sum(1 for s in self.stocks if s.status == 'active'),
+            regime=self.regime_manager.current_regime,
+            vix=self.market_state.vix,
+            interest_rate=self.market_state.interest_rate,
+            total_market_cap=total_market_cap
+        )
 
         self.tick_count += 1
 
@@ -213,5 +232,6 @@ class SimulationEngine:
                 'return180': self._calculate_period_return(180),
                 'return365': self._calculate_period_return(365)
             },
-            'logs': self.logs[-5:]  # Send last 5 logs
+            'logs': self.logs[-5:],  # Send last 5 logs
+            'analytics': self.cycle_analytics.get_analytics_snapshot(self.tick_count)
         }

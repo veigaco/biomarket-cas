@@ -42,7 +42,7 @@ def get_simulation():
     - `page_size`: Items per page (max 100)
     """
 )
-@limiter.limit("20/minute")
+@limiter.limit("60/minute")
 async def list_stocks(
     request: Request,
     page: int = Query(1, ge=1, description="Page number"),
@@ -89,7 +89,7 @@ async def list_stocks(
     Check marketStatus field to determine if price is real-time or delayed.
     """
 )
-@limiter.limit("20/minute")
+@limiter.limit("60/minute")
 async def get_stock(request: Request, ticker: str):
     """Get detailed information for a stock by ticker"""
     simulation = get_simulation()
@@ -119,7 +119,7 @@ async def get_stock(request: Request, ticker: str):
     - ticks: Number of historical ticks to return (default: 60, max: 60)
     """
 )
-@limiter.limit("10/minute")
+@limiter.limit("30/minute")
 async def get_stock_history(
     request: Request,
     ticker: str,

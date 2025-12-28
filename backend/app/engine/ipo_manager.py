@@ -36,6 +36,9 @@ class IPOManager:
         - Bull markets = high risk appetite, new companies go public
         - Bear markets = risk aversion, bankruptcies accumulate
 
+        **Failsafe**: If <10% of companies are active, emergency IPOs trigger
+        regardless of regime to prevent market collapse.
+
         Args:
             stocks: List of stocks (modified in-place)
             regime: Current market regime
@@ -43,15 +46,20 @@ class IPOManager:
         Returns:
             IPO event dict if an IPO occurred, None otherwise
         """
-        # Only process IPOs during GROWTH regime (bull market)
-        if regime != Regime.GROWTH:
-            return None
-
         active_count = sum(1 for s in stocks if s.status == 'active')
         bankrupt_count = sum(1 for s in stocks if s.status == 'bankrupt')
+        total_count = len(stocks)
+
+        # Failsafe: Emergency IPOs if market is collapsing (<10% active)
+        emergency_mode = active_count < (total_count * 0.1)
+
+        # Only process IPOs during GROWTH regime (or emergency)
+        if regime != Regime.GROWTH and not emergency_mode:
+            return None
 
         # Only trigger IPOs if there are bankruptcies to replace
         # During growth periods, replace one bankruptcy at a time
+        # During emergency, replace multiple to recover market
         if bankrupt_count > 0:
             # Find first bankrupt stock
             for i, stock in enumerate(stocks):
@@ -81,10 +89,12 @@ class IPOManager:
 
                     self.stock_id_counter += 1
 
+                    ipo_type = "Emergency IPO" if emergency_mode else "IPO"
                     return {
                         'ticker': stocks[i].ticker,
                         'sector': stocks[i].sector,
-                        'sub_industry': stocks[i].sub_industry
+                        'sub_industry': stocks[i].sub_industry,
+                        'emergency': emergency_mode
                     }
 
         return None

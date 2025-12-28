@@ -48,8 +48,11 @@ class Stock:
     def to_external_dict(self, market_status: str = 'open') -> dict:
         """
         Convert to JSON-serializable dict for external API.
-        Hides internal mechanics (metabolic_health, status).
+        Hides internal mechanics (metabolic_health, status, history).
         Always includes price (real-time if open, last known if closed).
+
+        Observable metrics only - agents must infer company health from
+        price movements, volatility, and market cap changes.
 
         Args:
             market_status: 'open' or 'closed'
@@ -65,5 +68,5 @@ class Stock:
             'sharesOutstanding': self.shares_outstanding,
             'currentMarketCap': self.current_market_cap,
             'volatility': round(self.volatility, 4),
-            'valueScore': round(self.value_score, 4),
+            # valueScore removed - internal valuation metric
         }

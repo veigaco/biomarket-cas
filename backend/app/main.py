@@ -15,6 +15,7 @@ from slowapi.errors import RateLimitExceeded
 from .engine.simulation import SimulationEngine
 from .api.websocket import manager
 from .api.middleware.rate_limiter import limiter
+from .api.middleware.request_logger import RequestLoggingMiddleware
 from .api.routes import stocks, market, engine
 
 # Configure logging
@@ -111,9 +112,10 @@ app = FastAPI(
     All API v1 endpoints require an `X-API-Key` header.
 
     ## Rate Limits
-    - Stock/market queries: 20 requests/minute per agent
-    - History/snapshot: 10 requests/minute per agent
-    - Global limit: 10,000 requests/minute
+    - Stock/market queries: 60 requests/minute per agent
+    - History queries: 30 requests/minute per agent
+    - Snapshot (heavy): 20 requests/minute per agent
+    - Global limit: 10,000 requests/minute per agent
 
     ## Philosophy
     This market is a pure data source. It exposes observable market data
@@ -132,6 +134,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add request logging middleware
+app.add_middleware(RequestLoggingMiddleware)
 
 # Add rate limiting
 app.state.limiter = limiter

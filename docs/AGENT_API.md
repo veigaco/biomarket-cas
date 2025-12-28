@@ -39,18 +39,21 @@ X-API-Key: your-api-key-here
 
 ### Rate Limits
 
-| Endpoint Type | Limit |
-|---------------|-------|
-| Stock/Market queries | 20 requests/minute |
-| History/Snapshot | 10 requests/minute |
-| Engine info | 10 requests/minute |
-| **Global** | 10,000 requests/minute (all agents combined) |
+| Endpoint Type | Limit | Polling Interval |
+|---------------|-------|------------------|
+| Stock queries (list, get) | 60 requests/minute | ~1 second |
+| Market stats, Engine info | 60 requests/minute | ~1 second |
+| Stock history | 30 requests/minute | ~2 seconds |
+| Market snapshot (heavy) | 20 requests/minute | ~3 seconds |
+| **Global (per agent)** | 10,000 requests/minute | - |
 
 **Rate limit exceeded response:**
 ```json
 HTTP 429 Too Many Requests
 {"error": "Rate limit exceeded"}
 ```
+
+**Note:** Market broadcasts every 2 ticks (1000ms), so polling faster than 1 second for most endpoints won't give you newer data.
 
 ---
 
@@ -140,8 +143,7 @@ curl -H "X-API-Key: your-key" \
       "marketStatus": "open",
       "sharesOutstanding": 4353772767.08,
       "currentMarketCap": 246908228119.31,
-      "volatility": 0.7412,
-      "valueScore": 0.1683
+      "volatility": 0.7412
     }
   ],
   "total": 85,
@@ -154,10 +156,11 @@ curl -H "X-API-Key: your-key" \
 **Response Fields:**
 - `price`: Real-time price when market is open, last known price when market is closed
 - `marketStatus`: Current market status ("open" or "closed")
-- `volatility`: Stock-specific volatility metric
-- `valueScore`: Value assessment metric
+- `volatility`: Stock volatility metric (higher = more volatile)
+- `sharesOutstanding`: Total shares outstanding
+- `currentMarketCap`: Current market capitalization
 
-**Rate Limit:** 20 requests/minute
+**Rate Limit:** 60 requests/minute
 
 ---
 
@@ -186,14 +189,13 @@ curl -H "X-API-Key: your-key" \
   "marketStatus": "open",
   "sharesOutstanding": 4353772767.08,
   "currentMarketCap": 262909501228.27,
-  "volatility": 0.7412,
-  "valueScore": 0.1683
+  "volatility": 0.7412
 }
 ```
 
 **Note:** Check `marketStatus` field to determine if price is real-time ("open") or delayed ("closed").
 
-**Rate Limit:** 20 requests/minute
+**Rate Limit:** 60 requests/minute
 
 ---
 
@@ -231,7 +233,7 @@ curl -H "X-API-Key: your-key" \
 
 **Note:** History only includes prices from when market was open. Maximum 60 ticks available.
 
-**Rate Limit:** 10 requests/minute
+**Rate Limit:** 30 requests/minute
 
 ---
 
@@ -263,7 +265,7 @@ curl -H "X-API-Key: your-key" \
 - `vix`: Current volatility index
 - `interest_rate`: Current interest rate
 
-**Rate Limit:** 20 requests/minute
+**Rate Limit:** 60 requests/minute
 
 ---
 
@@ -302,7 +304,7 @@ curl -H "X-API-Key: your-key" \
 
 **Note:** This is a more expensive operation. Prefer specific endpoints when you only need partial data.
 
-**Rate Limit:** 10 requests/minute
+**Rate Limit:** 20 requests/minute
 
 ---
 
@@ -340,7 +342,7 @@ curl -H "X-API-Key: your-key" \
 - `trading_window_ticks`: Ticks per open market period (12)
 - `closed_window_ticks`: Ticks per closed market period (8)
 
-**Rate Limit:** 10 requests/minute
+**Rate Limit:** 60 requests/minute
 
 ---
 
@@ -381,15 +383,18 @@ The market alternates between two states:
 - VIX (volatility index)
 - Interest rate
 - Market status (open/closed)
-- Stock volatility and value scores
+- Stock volatility
+- Shares outstanding
 - Market entry and exit events
 
 ❌ **Hidden from external systems:**
 - Internal formulas and calculations
-- Stock health metrics
+- **Stock health metrics** (metabolicHealth)
+- **Stock valuation scores** (valueScore)
 - Market regime classifications
 - Transition probabilities
 - Predictive indicators
+- Company status (active/bankrupt - inferred from presence/absence only)
 
 ---
 
@@ -397,7 +402,7 @@ The market alternates between two states:
 
 ### Efficient Polling
 
-**Poll at 1-2 tick intervals** to align with the 2-tick broadcast interval:
+**Poll at 1-3 second intervals** to align with the 2-tick broadcast interval:
 
 ```python
 import time
@@ -406,13 +411,14 @@ while True:
     stats = fetch_market_stats()
     # Process data
     analyze_market(stats)
-    time.sleep(1.5)  # 3 ticks
+    time.sleep(2)  # 2 seconds = 30 req/min (well under 60 req/min limit)
 ```
 
-**Why 1.5 seconds?**
+**Why 2 seconds?**
 - Backend broadcasts every 2 ticks (1000ms)
-- Polling faster won't give you newer data
-- This rate stays well under 20 req/min limit
+- Polling every 2 seconds gives you fresh data on every other broadcast
+- Rate: 30 req/min (well under 60 req/min limit for most endpoints)
+- Leaves headroom for occasional bursts or multiple endpoint calls
 
 ### Handle Market Status
 
@@ -468,7 +474,12 @@ from collections import deque
 import time
 
 class RateLimiter:
-    def __init__(self, max_requests=18, window=60):
+    def __init__(self, max_requests=50, window=60):
+        """
+        Args:
+            max_requests: Stay under endpoint limit (e.g., 50 for 60/min limit)
+            window: Time window in seconds (60 for per-minute limits)
+        """
         self.max_requests = max_requests
         self.window = window
         self.timestamps = deque(maxlen=max_requests)
@@ -484,14 +495,14 @@ class RateLimiter:
 
         self.timestamps.append(now)
 
-# Usage
-limiter = RateLimiter(max_requests=18, window=60)
+# Usage - set limit below endpoint max to leave headroom
+limiter = RateLimiter(max_requests=50, window=60)  # Stay under 60/min
 
 while True:
     limiter.wait_if_needed()
     stats = fetch_market_stats()
     process(stats)
-    time.sleep(1.5)
+    time.sleep(2)  # ~30 req/min
 ```
 
 ### Map All Tickers
@@ -549,10 +560,10 @@ def get_all_tickers():
 **Error:** `HTTP 429 Too Many Requests`
 
 **Solutions:**
-1. Increase polling interval (e.g., from 1s to 2s)
-2. Implement client-side rate limiting
-3. Use less expensive endpoints
-4. Cache data locally
+1. Increase polling interval (e.g., from 1s to 2-3s)
+2. Implement client-side rate limiting (see Best Practices)
+3. Use less expensive endpoints (e.g., /market/stats instead of /market/snapshot)
+4. Cache data locally and poll less frequently
 
 ---
 
@@ -604,7 +615,7 @@ def monitor_vix():
         elif vix > 20:
             print(f"📊 Elevated volatility: VIX = {vix:.2f}")
 
-        time.sleep(2)  # 4 ticks
+        time.sleep(2)  # 2 seconds = 30 req/min
 ```
 
 ### Track Sector Performance
@@ -636,6 +647,7 @@ def track_sector(sector, duration_ticks=120):
 
     avg_change = sum(changes) / len(changes) if changes else 0
     print(f"{sector} average change: {avg_change*100:.2f}%")
+    return avg_change
 ```
 
 ### Build Ticker Map

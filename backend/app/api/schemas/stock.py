@@ -9,6 +9,9 @@ class StockResponse(BaseModel):
     """
     Single stock response for external API.
     Price reflects last known value. Check marketStatus to determine if real-time or delayed.
+
+    Observable metrics only - internal health and valuation metrics are hidden.
+    Agents must infer company health from price movements and market behavior.
     """
     id: str
     ticker: str
@@ -19,8 +22,7 @@ class StockResponse(BaseModel):
     marketStatus: str = Field(description="Market status: 'open' or 'closed'")
     sharesOutstanding: float = Field(alias="shares_outstanding", description="Total shares outstanding")
     currentMarketCap: float = Field(alias="current_market_cap", description="Current market capitalization")
-    volatility: float = Field(description="Stock volatility metric")
-    valueScore: float = Field(alias="value_score", description="Value score metric")
+    volatility: float = Field(description="Stock volatility metric (higher = more volatile)")
 
     model_config = {
         "populate_by_name": True

@@ -9,6 +9,10 @@ export const useMarketStore = create((set) => ({
   phase: 'TRADING',
   periodReturns: { return60: null, return180: null, return365: null },
   logs: [],
+  analytics: null,
+
+  // UI state
+  activeTab: 'market', // 'market' | 'analytics'
 
   // Connection status
   connectionStatus: 'disconnected', // 'disconnected' | 'connecting' | 'connected' | 'error'
@@ -21,10 +25,13 @@ export const useMarketStore = create((set) => ({
     time: data.time || 0,
     phase: data.phase || 'TRADING',
     periodReturns: data.period_returns || { return60: null, return180: null, return365: null },
-    logs: data.logs || []
+    logs: data.logs || [],
+    analytics: data.analytics || null
   }),
 
   setConnectionStatus: (status) => set({ connectionStatus: status }),
+
+  setActiveTab: (tab) => set({ activeTab: tab }),
 
   addLog: (msg, type = 'info') => set((state) => ({
     logs: [

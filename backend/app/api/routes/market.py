@@ -33,7 +33,7 @@ def get_simulation():
     - Interest rate
     """
 )
-@limiter.limit("20/minute")
+@limiter.limit("60/minute")
 async def get_market_stats(request: Request):
     """Get aggregate market statistics"""
     simulation = get_simulation()
@@ -73,7 +73,7 @@ async def get_market_stats(request: Request):
     Prices reflect real-time values when market is open, last known values when closed.
     """
 )
-@limiter.limit("10/minute")
+@limiter.limit("20/minute")
 async def get_market_snapshot(request: Request):
     """Get full market snapshot for external API"""
     simulation = get_simulation()

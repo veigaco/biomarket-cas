@@ -40,7 +40,7 @@ def get_simulation():
     Market hours alternate to simulate trading sessions and overnight periods.
     """
 )
-@limiter.limit("10/minute")
+@limiter.limit("60/minute")
 async def get_engine_info(request: Request):
     """Get engine timing and metadata"""
     simulation = get_simulation()

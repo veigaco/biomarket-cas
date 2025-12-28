@@ -9,9 +9,13 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from .engine.simulation import SimulationEngine
 from .api.websocket import manager
+from .api.middleware.rate_limiter import limiter
+from .api.routes import stocks, market, engine
 
 # Configure logging
 logging.basicConfig(
@@ -89,7 +93,33 @@ async def lifespan(app: FastAPI):
 # Create FastAPI app
 app = FastAPI(
     title="BioMarket CAS - Market Simulation Engine",
-    description="Real-time market simulation with WebSocket streaming",
+    description="""
+    Real-time market simulation with WebSocket streaming and REST API.
+
+    ## Overview
+    This simulation models a complex adaptive system (CAS) market with:
+    - **Ticks**: 500ms intervals (2 ticks = 1 second)
+    - **Phases**: TRADING (12 ticks / 6s) and CLOSED (8 ticks / 4s)
+    - **Regimes**: GROWTH, STAGNATION, CONTRACTION, CRISIS
+    - **Events**: IPOs, bankruptcies, regime transitions
+
+    ## Data Access
+    - **WebSocket**: Real-time updates at `/ws/market` (broadcast every 1s)
+    - **REST API**: Poll endpoints for current state
+
+    ## Authentication
+    All API v1 endpoints require an `X-API-Key` header.
+
+    ## Rate Limits
+    - Stock/market queries: 20 requests/minute per agent
+    - History/snapshot: 10 requests/minute per agent
+    - Global limit: 10,000 requests/minute
+
+    ## Philosophy
+    This market is a pure data source. It exposes observable market data
+    (prices, regimes, stats) but not internal mechanics (formulas, weights,
+    transition probabilities). External systems observe and learn patterns.
+    """,
     version="1.0.0",
     lifespan=lifespan
 )
@@ -102,6 +132,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add rate limiting
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Include API v1 routers
+app.include_router(stocks.router, prefix="/api/v1")
+app.include_router(market.router, prefix="/api/v1")
+app.include_router(engine.router, prefix="/api/v1")
 
 
 @app.websocket("/ws/market")

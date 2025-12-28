@@ -44,3 +44,26 @@ class Stock:
             'history': list(self.history),
             'status': self.status
         }
+
+    def to_external_dict(self, market_status: str = 'open') -> dict:
+        """
+        Convert to JSON-serializable dict for external API.
+        Hides internal mechanics (metabolic_health, status).
+        Always includes price (real-time if open, last known if closed).
+
+        Args:
+            market_status: 'open' or 'closed'
+        """
+        return {
+            'id': self.id,
+            'ticker': self.ticker,
+            'name': self.name,
+            'sector': self.sector,
+            'subIndustry': self.sub_industry,
+            'price': round(self.price, 2),
+            'marketStatus': market_status,
+            'sharesOutstanding': self.shares_outstanding,
+            'currentMarketCap': self.current_market_cap,
+            'volatility': round(self.volatility, 4),
+            'valueScore': round(self.value_score, 4),
+        }

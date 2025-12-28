@@ -99,10 +99,11 @@ class SimulationEngine:
             self._add_log(log, 'error')
 
         # 5. Handle bankruptcies and IPOs
-        ipo_event = self.ipo_manager.process(self.stocks)
+        # IPOs only occur during GROWTH regime (risk appetite)
+        ipo_event = self.ipo_manager.process(self.stocks, self.regime_manager.current_regime)
         if ipo_event:
             self._add_log(
-                f"IPO: {ipo_event['ticker']} ({ipo_event['sector']})",
+                f"IPO: {ipo_event['ticker']} ({ipo_event['sector']} - {ipo_event['sub_industry']}) enters the market",
                 'success'
             )
 

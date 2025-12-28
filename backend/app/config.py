@@ -2,6 +2,10 @@
 Configuration constants for the market simulation engine.
 Ported from src/App.jsx
 """
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Sectors and sub-industries
 SECTORS = {
@@ -85,3 +89,8 @@ TRADING_WINDOW_TICKS = 12        # 6 seconds at 500ms/tick (1 trading day)
 CLOSE_WINDOW_TICKS = 8           # 4 seconds at 500ms/tick (market closed)
 TICK_INTERVAL = 0.5              # 500ms
 BROADCAST_INTERVAL = 1.0         # 1 second (every 2 ticks)
+
+# API Configuration
+API_KEYS = set(os.getenv("API_KEYS", "").split(","))
+if not API_KEYS or API_KEYS == {""}:
+    print("WARNING: No API keys configured in .env file")

@@ -7,7 +7,7 @@ The market engine has been **fine-tuned to match real S&P 500 behavior**:
 ✅ **Realistic returns** - Target ~7-10% annual growth (vs previous ~25-35%)
 ✅ **Regime rebalancing** - Bull Market (2.3x), Sideways (1.4x), Correction (0.7x), Bear Market (-0.3x)
 ✅ **Individual bankruptcies** - Companies fail one-by-one (no mass extinctions)
-✅ **IPO mechanism** - Sector-based tickers replace failed companies (TECH, HMED, ENRG, etc.)
+✅ **IPO mechanism** - **IPOs only during GROWTH regime** (bull markets = risk appetite, bear markets = risk aversion)
 ✅ **Trading schedule** - 12 ticks trading, 8 ticks closed with overnight gaps
 ✅ **No sporulation shocks** - Natural volatility drives drawdowns
 
@@ -138,22 +138,28 @@ change = e^(drift + vol * randomWalk)
 
 ## 💀🌱 **4. The Circle of Life (Extinction & Rebirth)**
 
-**Extinction happens when (src/App.jsx:471-473):**
+**Extinction happens when:**
 - Price drops below $0.50, OR
 - Health reaches 0
 
+Bankruptcies can occur at any time, but are **more likely during bear markets and crises** due to negative health regeneration.
+
 **What happens to dead companies?**
-They are replaced by **IPOs** - realistic new companies!
+They are replaced by **IPOs** - but only during favorable market conditions!
 
-**The IPO Mechanism (src/App.jsx:487-514):**
-- When > 10% of companies are dead, the system spawns a new IPO
-- New companies replace dead ones in the same slot
-- **Sector-based tickers**: First letter matches sector (TECH, HMED, ENRG, FIAB, etc.)
-- Realistic names: "Biotech Holdings", "Cloud Inc", "Renewables Corp"
-- They start fresh: health = 1.0, modest market cap (~$50B)
-- Higher volatility (0.6) because they're young and risky
+**The IPO Mechanism (Regime-Based):**
+- **IPOs only occur during GROWTH regime** (bull markets)
+- This reflects real-world risk appetite dynamics:
+  - 🐂 **Bull markets** → High investor confidence, new companies go public
+  - 🐻 **Bear markets** → Risk aversion, bankruptcies accumulate
+- When bankrupt companies exist AND market is in GROWTH:
+  - One bankruptcy is replaced at a time
+  - **Sector-based tickers**: First letter matches sector (T=Tech, H=Healthcare, E=Energy, F=Financials, etc.)
+  - Realistic names: "Biotech Holdings", "Cloud Inc", "Renewables Corp"
+  - They start fresh: health = 1.0, modest market cap (~$50B)
+  - Higher volatility (0.6) because they're young and risky
 
-**This mimics real markets** - individual bankruptcies, not mass extinctions!
+**This mimics real markets** - IPOs surge during boom times, bankruptcies pile up during crises!
 
 ---
 
@@ -245,7 +251,8 @@ What makes this engine special is what **emerges naturally**:
 3. **Sector rotation** happens because:
    - Different sectors have different sub-industries
    - Individual extinctions create vacancies
-   - IPOs randomly appear in sectors with sector-based tickers
+   - IPOs only appear during GROWTH regime (reflecting risk appetite)
+   - New companies enter random sectors with sector-based tickers
    - Treemap constantly reorganizes by market cap
 
 4. **Survival of the fittest**:
@@ -323,9 +330,12 @@ Target return:    ~7-10% annually
 
 ### IPO Mechanism
 ```
-Trigger:          When >10% companies bankrupt
-Ticker format:    Sector-based (TECH, HMED, ENRG, etc.)
+Trigger:          GROWTH regime (bull markets) + bankruptcies exist
+Timing:           IPOs only occur during favorable market conditions
+                  Bankruptcies accumulate during bear markets/crises
+Ticker format:    Sector-based (T=Tech, H=Healthcare, E=Energy, etc.)
 Initial cap:      $50-100B (randomized)
 Initial health:   1.0 (100%)
 Volatility:       0.6 (higher risk for new companies)
+Risk dynamics:    Bull markets = IPO boom | Bear markets = bankruptcies pile up
 ```

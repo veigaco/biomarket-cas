@@ -11,11 +11,90 @@ import {
   Legend,
   ResponsiveContainer
 } from 'recharts';
-import { TrendingUp, Users, Building2, AlertTriangle } from 'lucide-react';
+import { TrendingUp, Users, Building2, AlertTriangle, Download } from 'lucide-react';
 import { useMarketStore } from '../store/marketStore';
 
 export default function AnalyticsView() {
   const { analytics } = useMarketStore();
+
+  // Download JSON function
+  const downloadJSON = () => {
+    if (!analytics) return;
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = `market-analytics-${timestamp}.json`;
+    const json = JSON.stringify(analytics, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  // Download CSV function
+  const downloadCSV = () => {
+    if (!analytics) return;
+
+    const cycles = [...analytics.completed_cycles];
+    if (analytics.current_cycle) cycles.push(analytics.current_cycle);
+
+    // CSV Headers
+    const headers = [
+      'cycle_number', 'is_complete', 'start_tick', 'end_tick',
+      'ipo_count', 'bankruptcy_count', 'regime_transitions',
+      'min_companies', 'max_companies', 'avg_companies',
+      'min_vix', 'median_vix', 'max_vix',
+      'min_interest_rate', 'median_interest_rate', 'max_interest_rate',
+      'return_60t', 'return_180t', 'return_365t',
+      'regime_growth_periods', 'regime_stagnation_periods',
+      'regime_contraction_periods', 'regime_crisis_periods'
+    ];
+
+    // CSV Rows
+    const rows = cycles.map(c => [
+      c.cycle_number,
+      c.is_complete,
+      c.start_tick,
+      c.end_tick,
+      c.ipo_count,
+      c.bankruptcy_count,
+      c.regime_transitions,
+      c.min_companies,
+      c.max_companies,
+      c.avg_companies,
+      c.min_vix,
+      c.median_vix,
+      c.max_vix,
+      c.min_interest_rate,
+      c.median_interest_rate,
+      c.max_interest_rate,
+      c.return_60t || '',
+      c.return_180t || '',
+      c.return_365t || '',
+      c.regime_periods.GROWTH || 0,
+      c.regime_periods.STAGNATION || 0,
+      c.regime_periods.CONTRACTION || 0,
+      c.regime_periods.CRISIS || 0
+    ]);
+
+    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = `market-analytics-${timestamp}.csv`;
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   if (!analytics) {
     return (
@@ -93,6 +172,36 @@ export default function AnalyticsView() {
           </div>
           <div className="text-3xl font-black text-white">
             {summary.avg_companies.toFixed(0)}
+          </div>
+        </div>
+      </div>
+
+      {/* Export Data Section */}
+      <div className="bg-slate-900 border border-white/5 p-4 rounded-xl">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Download className="w-5 h-5 text-slate-400" />
+            <span className="text-sm font-bold text-slate-300">Export All Cycle Data</span>
+            <span className="text-xs text-slate-500">
+              ({summary.total_completed_cycles} completed cycle{summary.total_completed_cycles !== 1 ? 's' : ''}
+              {current_cycle && !current_cycle.is_complete ? ' + 1 partial' : ''})
+            </span>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={downloadJSON}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-lg transition-colors flex items-center gap-2"
+            >
+              <Download className="w-4 h-4" />
+              JSON
+            </button>
+            <button
+              onClick={downloadCSV}
+              className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-bold rounded-lg transition-colors flex items-center gap-2"
+            >
+              <Download className="w-4 h-4" />
+              CSV
+            </button>
           </div>
         </div>
       </div>

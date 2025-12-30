@@ -1,0 +1,7 @@
+cycle_number,is_complete,start_tick,end_tick,ipo_count,bankruptcy_count,regime_transitions,min_companies,max_companies,avg_companies,min_vix,median_vix,max_vix,min_interest_rate,median_interest_rate,max_interest_rate,return_60t,return_180t,return_365t,regime_growth_periods,regime_stagnation_periods,regime_contraction_periods,regime_crisis_periods
+0,true,0,7300,4,0,3,81,85,84.9,13.18,19.15,61.75,0.6987,2.5131,4.3077,5.77,15.37,29.83,16,229,119,0
+1,true,7300,14600,0,0,1,85,85,85,22.6,33.63,68.05,4.1925,4.6986,4.8164,1.68,1.72,0.94,0,0,178,186
+2,true,14600,21900,15,0,4,85,100,96.67,12.76,34.42,72.74,0.6896,4.7322,4.8099,-0.12,2.06,-2.73,95,41,0,228
+3,true,21900,29200,0,0,0,100,100,100,12.42,15.25,60.66,0.6891,0.7482,0.8014,6.35,24.12,45.16,365,0,0,0
+4,true,29200,36500,0,0,2,100,100,100,12.11,15.19,55.2,0.6722,0.7475,4.2638,5.02,12.79,25.27,358,0,7,0
+5,false,36500,39200,0,0,1,100,100,100,12.71,16.27,50.36,0.6848,0.7675,2.5512,2.91,19.47,34.45,80,54,0,0

@@ -30,8 +30,8 @@ def get_simulation():
     - Current tick count
     - Current market status (open/closed)
     - Time in current phase
-    - Tick interval (500ms)
-    - Broadcast interval (1000ms)
+    - Tick interval (ms)
+    - Broadcast interval (ms)
 
     **Market Hours:**
     - **Open**: 12 ticks - real-time price updates
@@ -43,6 +43,8 @@ def get_simulation():
 @limiter.limit("60/minute")
 async def get_engine_info(request: Request):
     """Get engine timing and metadata"""
+    from ...config import TICK_INTERVAL, BROADCAST_INTERVAL, TRADING_WINDOW_TICKS, CLOSE_WINDOW_TICKS
+
     simulation = get_simulation()
 
     # Convert phase to market status
@@ -52,8 +54,8 @@ async def get_engine_info(request: Request):
         tick_count=simulation.tick_count,
         phase=market_status,
         time_in_phase=simulation.time_in_phase,
-        tick_interval_ms=500,
-        broadcast_interval_ms=1000,
-        trading_window_ticks=12,
-        closed_window_ticks=8
+        tick_interval_ms=int(TICK_INTERVAL * 1000),
+        broadcast_interval_ms=int(BROADCAST_INTERVAL * 1000),
+        trading_window_ticks=TRADING_WINDOW_TICKS,
+        closed_window_ticks=CLOSE_WINDOW_TICKS
     )

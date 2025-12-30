@@ -32,14 +32,17 @@ simulation_task = None
 
 async def simulation_loop():
     """
-    Main simulation loop: runs at 500ms intervals, broadcasts every 1s (every 2 ticks).
+    Main simulation loop with configurable tick interval and broadcast rate.
     """
+    from .config import TICK_INTERVAL, BROADCAST_INTERVAL
+
     global simulation
 
     tick_counter = 0
     next_tick_time = time.time()
+    ticks_per_broadcast = max(1, int(BROADCAST_INTERVAL / TICK_INTERVAL))
 
-    logger.info("Simulation loop started")
+    logger.info(f"Simulation loop started (tick={TICK_INTERVAL*1000}ms, broadcast every {ticks_per_broadcast} ticks)")
 
     while True:
         try:
@@ -47,8 +50,8 @@ async def simulation_loop():
             await simulation.tick()
             tick_counter += 1
 
-            # Broadcast every 2 ticks (1 second)
-            if tick_counter % 2 == 0:
+            # Broadcast at configured interval
+            if tick_counter % ticks_per_broadcast == 0:
                 snapshot = simulation.get_frontend_snapshot()
                 await manager.broadcast({
                     'type': 'update',
@@ -56,13 +59,13 @@ async def simulation_loop():
                 })
 
             # Drift-corrected sleep (compensates for tick processing time)
-            next_tick_time += 0.5  # 500ms
+            next_tick_time += TICK_INTERVAL
             sleep_duration = max(0, next_tick_time - time.time())
             await asyncio.sleep(sleep_duration)
 
         except Exception as e:
             logger.error(f"Simulation loop error: {e}", exc_info=True)
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(TICK_INTERVAL)
 
 
 @asynccontextmanager
@@ -99,13 +102,13 @@ app = FastAPI(
 
     ## Overview
     This simulation models a complex adaptive system (CAS) market with:
-    - **Ticks**: 500ms intervals (2 ticks = 1 second)
-    - **Phases**: TRADING (12 ticks / 6s) and CLOSED (8 ticks / 4s)
+    - **Ticks**: Configurable intervals (see /api/v1/engine/info)
+    - **Phases**: TRADING and CLOSED phases
     - **Regimes**: GROWTH, STAGNATION, CONTRACTION, CRISIS
     - **Events**: IPOs, bankruptcies, regime transitions
 
     ## Data Access
-    - **WebSocket**: Real-time updates at `/ws/market` (broadcast every 1s)
+    - **WebSocket**: Real-time updates at `/ws/market` (configurable broadcast rate)
     - **REST API**: Poll endpoints for current state
 
     ## Authentication

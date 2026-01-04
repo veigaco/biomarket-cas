@@ -6,14 +6,15 @@ Provides cumulative statistics for both completed cycles and current partial cyc
 """
 
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 from collections import deque
 import statistics
 
 from ..models.regime import Regime
 
 
-TICKS_PER_CYCLE = 7300  # 365 periods × 20 ticks/period
+# Full year cycle for accurate annual measurements
+TICKS_PER_CYCLE = 7300
 
 
 @dataclass
@@ -52,6 +53,11 @@ class CycleStats:
     return_180t: Optional[float] = None
     return_365t: Optional[float] = None
 
+    # True annual return (cycle start to cycle end)
+    annual_return: Optional[float] = None
+    start_market_cap: Optional[float] = None
+    end_market_cap: Optional[float] = None
+
 
 class CycleAnalytics:
     """
@@ -79,8 +85,11 @@ class CycleAnalytics:
         self.ipo_count = 0
         self.bankruptcy_count = 0
 
-        # Market cap history for return calculations (track last 366 values)
-        self.market_cap_history: deque = deque(maxlen=366)
+        # Market cap history for return calculations (track full cycle + buffer)
+        self.market_cap_history: deque = deque(maxlen=TICKS_PER_CYCLE + 1)
+
+        # Track cycle starting market cap for accurate annual returns
+        self.cycle_start_market_cap: Optional[float] = None
 
     def tick_update(
         self,
@@ -102,6 +111,10 @@ class CycleAnalytics:
             interest_rate: Current interest rate
             total_market_cap: Total market capitalization
         """
+        # Track cycle start market cap (first tick of each cycle)
+        if self.cycle_start_market_cap is None:
+            self.cycle_start_market_cap = total_market_cap
+
         # Accumulate data for current cycle
         self.company_counts.append(active_company_count)
         self.vix_values.append(vix)
@@ -155,6 +168,7 @@ class CycleAnalytics:
         self.regime_transition_count = 0
         self.ipo_count = 0
         self.bankruptcy_count = 0
+        self.cycle_start_market_cap = None  # Will be set on first tick of new cycle
         # Note: market_cap_history persists across cycles for return calculations
 
     def _calculate_cycle_stats(
@@ -202,6 +216,14 @@ class CycleAnalytics:
         return_180t = self._calculate_return(180)
         return_365t = self._calculate_return(365)
 
+        # Calculate true annual return (cycle start to current/end)
+        annual_return = None
+        start_mcap = self.cycle_start_market_cap
+        end_mcap = self.market_cap_history[-1] if self.market_cap_history else None
+
+        if start_mcap and end_mcap and start_mcap > 0:
+            annual_return = round(((end_mcap - start_mcap) / start_mcap) * 100, 2)
+
         return CycleStats(
             cycle_number=cycle_number,
             start_tick=start_tick,
@@ -222,7 +244,10 @@ class CycleAnalytics:
             max_interest_rate=round(max_ir, 4),
             return_60t=return_60t,
             return_180t=return_180t,
-            return_365t=return_365t
+            return_365t=return_365t,
+            annual_return=annual_return,
+            start_market_cap=round(start_mcap / 1e9, 2) if start_mcap else None,
+            end_market_cap=round(end_mcap / 1e9, 2) if end_mcap else None
         )
 
     def _calculate_return(self, periods: int) -> Optional[float]:
@@ -318,5 +343,8 @@ class CycleAnalytics:
             'max_interest_rate': stats.max_interest_rate,
             'return_60t': stats.return_60t,
             'return_180t': stats.return_180t,
-            'return_365t': stats.return_365t
+            'return_365t': stats.return_365t,
+            'annual_return': stats.annual_return,
+            'start_market_cap_billions': stats.start_market_cap,
+            'end_market_cap_billions': stats.end_market_cap
         }

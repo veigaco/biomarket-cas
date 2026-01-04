@@ -55,6 +55,18 @@ async def get_market_stats(request: Request):
 
 
 @router.get(
+    "/analytics",
+    summary="Get cycle analytics",
+    description="Get cycle-by-cycle analytics including returns, IPOs, bankruptcies, and regime data."
+)
+@limiter.limit("30/minute")
+async def get_market_analytics(request: Request):
+    """Get cycle analytics for Phase 1 testing"""
+    simulation = get_simulation()
+    return simulation.cycle_analytics.get_analytics_snapshot(simulation.tick_count)
+
+
+@router.get(
     "/snapshot",
     response_model=MarketSnapshotResponse,
     summary="Get full market snapshot",

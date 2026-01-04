@@ -91,8 +91,8 @@ REGIME_TRANSITIONS = {
 HISTORY_LENGTH = 60              # 60-period window for returns
 TRADING_WINDOW_TICKS = 12        # 6 seconds at 500ms/tick (1 trading day)
 CLOSE_WINDOW_TICKS = 8           # 4 seconds at 500ms/tick (market closed)
-TICK_INTERVAL = 0.02              # 20ms
-BROADCAST_INTERVAL = 1.0         # 1 second (every 2 ticks)
+TICK_INTERVAL = 0.02             # 20ms for fast testing (was 0.5 = 500ms)
+BROADCAST_INTERVAL = 1.0         # 1 second
 
 # API Configuration
 API_KEYS = set(os.getenv("API_KEYS", "").split(","))

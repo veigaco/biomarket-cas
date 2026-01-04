@@ -13,6 +13,7 @@ from ..config import (
     SECTORS, REGIMES, HISTORY_LENGTH,
     TRADING_WINDOW_TICKS, CLOSE_WINDOW_TICKS
 )
+from ..config.loader import get_cached_config, get_market_cap_tier
 from .regime_manager import RegimeManager
 from .stock_price import StockPriceEngine
 from .ipo_manager import IPOManager
@@ -33,46 +34,66 @@ class SimulationEngine:
 
         self.tick_count = 0
         self.time_in_phase = 0
-        self.market_cap_history = deque(maxlen=366)  # 366 for 365T calculation
+        self.market_cap_history = deque(maxlen=1461)  # 1461 for 1460T (2 cycles) winner tracking
         self.logs: List[dict] = []
+        self.ticks_since_winner_check = 0  # Track when to update winner status
 
         # Initialize stocks
         self._generate_initial_stocks()
 
     def _generate_initial_stocks(self):
-        """Generate initial stock portfolio (ported from generateInitialStocks)"""
+        """
+        Generate initial stock portfolio with market cap-based tiers.
+        Bottom-up model: tier determines volatility and regime sensitivity.
+        """
         stock_id_counter = 0
+        market_caps_config = get_cached_config('market_caps')
 
         for sector, sub_industries in SECTORS.items():
             for sub in sub_industries:
                 count = random.randint(2, 3)  # 2-3 companies per sub-industry
 
                 for i in range(count):
-                    is_large_cap = random.random() > 0.85
-                    base_cap = (
-                        (random.random() * 2e12 + 1e12) if is_large_cap
-                        else (random.random() * 400e9 + 50e9)
-                    )
+                    # Generate realistic market cap distribution
+                    # 15% large cap, 30% mid cap, 55% small cap (mega caps emerge later)
+                    rand = random.random()
+                    if rand > 0.85:  # 15% large cap
+                        base_cap = random.random() * 190e9 + 10e9  # $10B-$200B
+                    elif rand > 0.55:  # 30% mid cap
+                        base_cap = random.random() * 8e9 + 2e9  # $2B-$10B
+                    else:  # 55% small cap
+                        base_cap = random.random() * 1.75e9 + 250e6  # $250M-$2B
+
+                    # Determine tier from market cap
+                    market_cap_billions = base_cap / 1e9
+                    tier = get_market_cap_tier(market_cap_billions, market_caps_config)
+                    tier_config = market_caps_config['tiers'][tier]
+
+                    # Assign tier-specific base volatility
+                    vol_min, vol_max = tier_config['base_volatility_range']
+                    base_vol = random.random() * (vol_max - vol_min) / 100 + vol_min / 100
 
                     initial_price = log_normal_random(4.605, 0.5)  # log(100) ≈ 4.605
 
                     self.stocks.append(Stock(
                         id=f"stock-{stock_id_counter}",
                         ticker=generate_sector_ticker(sector),
-                        name=f"{sub} {random.choice(['Corp', 'Systems', 'Global'])}",
+                        name=f"{sub} {random.choice(['Corp', 'Systems', 'Global', 'Tech', 'Industries'])}",
                         sector=sector,
                         sub_industry=sub,
                         price=initial_price,
                         shares_outstanding=base_cap / initial_price,
                         current_market_cap=base_cap,
-                        volatility=(
-                            random.random() * 0.15 + 0.15 if is_large_cap
-                            else random.random() * 0.6 + 0.30
-                        ),
+                        volatility=base_vol,  # Will be scaled by VIX during simulation
                         value_score=min(1.0, max(0.1, base_cap / 3e12 + random.random() * 0.2)),
                         metabolic_health=1.0,
                         history=deque([initial_price] * HISTORY_LENGTH, maxlen=HISTORY_LENGTH),
-                        status='active'
+                        status='active',
+                        # Bottom-up model fields
+                        market_cap_tier=tier,
+                        winner_status='NORMAL',
+                        base_volatility=base_vol,
+                        performance_tracker=deque([initial_price], maxlen=1460)
                     ))
 
                     stock_id_counter += 1
@@ -103,10 +124,13 @@ class SimulationEngine:
                 self.cycle_analytics.record_bankruptcy()
             self._add_log(log, 'error')
 
-        # 5. Handle bankruptcies and IPOs
-        # IPOs only occur during GROWTH regime (risk appetite)
-        # Exception: Emergency IPOs trigger if <10% companies active (prevent collapse)
-        ipo_event = self.ipo_manager.process(self.stocks, self.regime_manager.current_regime)
+        # 5. Handle IPOs (independent of bankruptcies)
+        # IPOs only occur during GROWTH regime with low VIX
+        ipo_event = self.ipo_manager.process(
+            self.stocks,
+            self.regime_manager.current_regime,
+            self.market_state
+        )
         if ipo_event:
             self.cycle_analytics.record_ipo()
             ipo_type = "Emergency IPO" if ipo_event.get('emergency') else "IPO"
@@ -120,7 +144,20 @@ class SimulationEngine:
         total_market_cap = self._calculate_total_market_cap()
         self.market_cap_history.append(total_market_cap)
 
-        # 7. Update cycle analytics
+        # 7. Update winner status (escape velocity tracking)
+        # Check once per cycle (365 ticks) to identify sustained outperformers
+        self.ticks_since_winner_check += 1
+        if self.ticks_since_winner_check >= 365:
+            self.ticks_since_winner_check = 0
+            # Calculate market average return over tracking window (2 cycles = 1460 periods)
+            if len(self.market_cap_history) >= 1460:
+                market_avg_return = (
+                    self.market_cap_history[-1] / self.market_cap_history[-1460]
+                    if self.market_cap_history[-1460] > 0 else 1.0
+                )
+                self.stock_price_engine.update_winner_status(self.stocks, market_avg_return)
+
+        # 8. Update cycle analytics
         self.cycle_analytics.tick_update(
             tick=self.tick_count,
             active_company_count=sum(1 for s in self.stocks if s.status == 'active'),

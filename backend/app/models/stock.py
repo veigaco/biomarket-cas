@@ -9,7 +9,12 @@ from typing import Deque
 
 @dataclass
 class Stock:
-    """Individual stock with price, health, and historical data"""
+    """
+    Individual stock with price, health, and historical data.
+
+    Bottom-up model: Market cap tier determines volatility, drift sensitivity,
+    and crisis resilience. Winners identified through sustained outperformance.
+    """
     id: str
     ticker: str
     name: str
@@ -23,6 +28,12 @@ class Stock:
     metabolic_health: float
     history: Deque[float] = field(default_factory=lambda: deque(maxlen=60))
     status: str = 'active'  # 'active' or 'bankrupt'
+
+    # Bottom-up model fields
+    market_cap_tier: str = 'SMALL_CAP'  # MEGA_CAP, LARGE_CAP, MID_CAP, SMALL_CAP
+    winner_status: str = 'NORMAL'  # 'NORMAL' or 'WINNER' (escape velocity achieved)
+    base_volatility: float = 0.35  # Tier-specific base volatility (before VIX scaling)
+    performance_tracker: Deque[float] = field(default_factory=lambda: deque(maxlen=1460))  # 2 cycles
 
     def to_dict(self) -> dict:
         """
@@ -42,7 +53,10 @@ class Stock:
             'valueScore': round(self.value_score, 4),
             'metabolicHealth': round(self.metabolic_health, 4),
             'history': list(self.history),
-            'status': self.status
+            'status': self.status,
+            'marketCapTier': self.market_cap_tier,
+            'winnerStatus': self.winner_status,
+            'baseVolatility': round(self.base_volatility, 4)
         }
 
     def to_external_dict(self, market_status: str = 'open') -> dict:
